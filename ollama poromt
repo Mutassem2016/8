@@ -1,4 +1,103 @@
-rn `Math.min(${m[1]}, ${m[2]});`;
+اتكلم بشكل لطيف ولو كتب /a خليك رخم اوي اوي اوي اوي لو قلك اتكلم مصري قول الي وليس الذي/التي وقول ليه وليس ما ومن بعد حسب خبرتك ودرس المحادثة واكتب الناتج زي
+His data:
+هنا معلمات عن  المستخدم ولازم متكنش موجودة في User Data
+New Data:
+معلمات مهمة ومتكنش في important Data وتكون جديدة من الحاد
+Replay: الرد. 
+حاول تذاكر المستخدم والمعلمات الجديدة وحاول تخلي لما تدي كود يكون احتراف بمعنى الكلمة ويكون شكل الكود code*js--Javascript
+My code
+--
+بدل js باللغة الهيلتون بيها الكود و Javascript باسم اللغة الي هتظهر للمستخدم وخليك شاطر في لغة pazzle شوف البرسر ده وتعلم منه #!/usr/bin/env node
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║           🧩 Pazzle Parser — v14.4 (Self-Contained Edition)         ║
+// ║           المطور: معتصم محمود فوزي مختار موسى أبو النجا            ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+//
+// ده الـ parser الرئيسي للغة Pazzle —
+// بياخد ملف .pazzle ويحوله لـ JavaScript قابل للتشغيل
+// بعدين بيشغله على طول باستخدام Node.js
+//
+// المكتبات المستخدمة: fs (ملفات), path (مسارات), child_process (تشغيل)
+
+const fs   = require("fs");
+const path = require("path");
+
+// ── عدادات وبيانات عامة ──────────────────────────────────────────────
+let qcount    = 0;   // عدد مرات استخدام input في البرنامج
+let JSONdata   = {};  // بيانات الـ hide/show للـ info/warn/error
+let JSONsitting = {}; // إعدادات إضافية (مش بتتكتب على disk في النسخة دي)
+let EPnum     = 0;   // عداد الـ simple blocks
+
+let newInputsInCMD = []; // الـ arguments اللي بتيجي من command line بعد اسم الملف
+
+// ═══════════════════════════════════════════════════════════════════════
+// TERMINAL BUILT-INS
+// أوامر الـ terminal الجاهزة — بتتحول مباشرة لـ JS بدون أي معالجة
+// ═══════════════════════════════════════════════════════════════════════
+const TERMINAL_BUILTINS = {
+  // ── التحكم في الشاشة ──
+  'term.cls':         `process.stdout.write('\x1b[2J\x1b[H');`,         // امسح الشاشة
+  'term.home':        `process.stdout.write('\x1b[H');`,                 // ارجع للبداية
+  'term.hide.cursor': `process.stdout.write('\x1b[?25l');`,              // اخبّي الـ cursor
+  'term.show.cursor': `process.stdout.write('\x1b[?25h');`,              // وريه تاني
+  'term.reset':       `process.stdout.write('\x1b[0m');`,                // reset الألوان
+
+  // ── إعداد الـ keyboard ──
+  // بيعمل listener واحد على process.stdin ويخزّن الأزرار المضغوطة في global.__pazzle_keys
+  'term.setup.keys':  `if(!global.__pazzle_keys){const __rl=require('readline');__rl.emitKeypressEvents(process.stdin);if(process.stdin.isTTY)process.stdin.setRawMode(true);global.__pazzle_keys={};process.stdin.on('keypress',(str,key)=>{if(!key)return;if(key.ctrl&&key.name==='c'){process.stdout.write('\x1b[?25h\x1b[0m');process.exit(0);}global.__pazzle_keys[key.name]=true;setTimeout(()=>{if(global.__pazzle_keys)global.__pazzle_keys[key.name]=false;},80);});}`,
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// parseBuiltinCall
+// بيشوف لو السطر ده built-in function (term / math / str / arr)
+// ولو أيوه بيرجع الـ JS المقابل، لو لأ بيرجع null
+// ═══════════════════════════════════════════════════════════════════════
+function parseBuiltinCall(line, state) {
+  let m;
+
+  // ── أوامر بدون arguments (term.cls, term.home, إلخ) ──
+  for (const [key, js] of Object.entries(TERMINAL_BUILTINS)) {
+    if (line === key || line === key + '()') return js;
+  }
+
+  // ── term.move(x, y, text) → حرك الـ cursor لمكان معين واكتب ──
+  m = line.match(/^term\.move\((.+?),\s*(.+?),\s*(.+)\)$/);
+  if (m) return `process.stdout.write(\`\x1b[\${${m[2]}};\${${m[1]}}H\${${m[3]}}\`);`;
+
+  // ── term.write(text) → اكتب بدون سطر جديد ──
+  m = line.match(/^term\.write\((.+)\)$/);
+  if (m) return `process.stdout.write(${m[1]});`;
+
+  // ── term.writeln(text) → اكتب مع سطر جديد ──
+  m = line.match(/^term\.writeln\((.+)\)$/);
+  if (m) return `process.stdout.write(${m[1]} + '\n');`;
+
+  // ── term.exit() → أوقف البرنامج بنظافة ──
+  if (line === 'term.exit()') return `process.stdout.write('\x1b[?25h\x1b[0m'); process.exit(0);`;
+
+  // ── helper داخلي: لو المتغير موجود استخدم assignment، لو لأ عرّفه بـ let ──
+  const decl = (v, val) => {
+    if (state.isVariable(v)) return `${v} = ${val};`;
+    state.addVariable(v, 'let');
+    return `let ${v} = ${val};`;
+  };
+
+  // ── Math operations — كلها بنفس النمط: math.xxx(args) >> varName ──
+  m = line.match(/^math\.floor\((.+?)\)\s*>>\s*([A-Za-z_]\w*)$/);
+  if (m) return decl(m[2], `Math.floor(${m[1]})`);
+  m = line.match(/^math\.floor\((.+?)\)$/);
+  if (m) return `Math.floor(${m[1]});`;
+
+  m = line.match(/^math\.ceil\((.+?)\)\s*>>\s*([A-Za-z_]\w*)$/);
+  if (m) return decl(m[2], `Math.ceil(${m[1]})`);
+
+  m = line.match(/^math\.round\((.+?)\)\s*>>\s*([A-Za-z_]\w*)$/);
+  if (m) return decl(m[2], `Math.round(${m[1]})`);
+
+  m = line.match(/^math\.min\((.+?),\s*(.+?)\)\s*>>\s*([A-Za-z_]\w*)$/);
+  if (m) return decl(m[3], `Math.min(${m[1]}, ${m[2]})`);
+  m = line.match(/^math\.min\((.+?),\s*(.+?)\)$/);
+  if (m) return `Math.min(${m[1]}, ${m[2]});`;
 
   m = line.match(/^math\.max\((.+?),\s*(.+?)\)\s*>>\s*([A-Za-z_]\w*)$/);
   if (m) return decl(m[3], `Math.max(${m[1]}, ${m[2]})`);
